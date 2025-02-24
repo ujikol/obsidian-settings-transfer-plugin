@@ -1,15 +1,15 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, PluginManifest } from 'obsidian';
 
-interface SettingsMigratorSettings {
+interface SettingsTransferSettings {
     lastExportedPaths: {[pluginId: string]: string[]};
 }
 
-const DEFAULT_SETTINGS: SettingsMigratorSettings = {
+const DEFAULT_SETTINGS: SettingsTransferSettings = {
     lastExportedPaths: {}
 }
 
-export default class SettingsMigratorPlugin extends Plugin {
-    settings: SettingsMigratorSettings;
+export default class SettingsTransferPlugin extends Plugin {
+    settings: SettingsTransferSettings;
 
     constructor(app: App, manifest: PluginManifest) {
         super(app, manifest);
@@ -56,6 +56,8 @@ export default class SettingsMigratorPlugin extends Plugin {
                                 let currentSettings = await communityPlugin.loadData() || {};
                                 const newSettings = this.mergeSettings(currentSettings, settings[pluginId]);
                                 await communityPlugin.saveData(newSettings);
+                                await communityPlugin.onunload();
+                                await communityPlugin.onload();
                             } else if (await this.hasCoreSettings(pluginId)) {
                                 // Handle core settings
                                 console.log(`Processing core settings: ${pluginId}`);
@@ -64,7 +66,7 @@ export default class SettingsMigratorPlugin extends Plugin {
                                 // Neither plugin nor core settings found
                                 const message = `Plugin not installed or invalid settings section: ${pluginId}`;
                                 console.warn(message);
-                                new Notice(message);
+                                new Notice(message, 20000);
                                 continue;
                             }
                         } catch (pluginError) {
@@ -80,7 +82,7 @@ export default class SettingsMigratorPlugin extends Plugin {
             }
         });
 
-        this.addSettingTab(new SettingsMigratorSettingTab(this.app, this));
+        this.addSettingTab(new SettingsTransferSettingTab(this.app, this));
     }
 
     private mergeSettings(target: any, source: any): any {
@@ -148,10 +150,10 @@ export default class SettingsMigratorPlugin extends Plugin {
 }
 
 class ExportSettingsModal extends Modal {
-    plugin: SettingsMigratorPlugin;
+    plugin: SettingsTransferPlugin;
     selectedPaths: {[pluginId: string]: string[]};
     
-    constructor(app: App, plugin: SettingsMigratorPlugin) {
+    constructor(app: App, plugin: SettingsTransferPlugin) {
         super(app);
         this.plugin = plugin;
         this.selectedPaths = {...plugin.settings.lastExportedPaths};
@@ -393,6 +395,93 @@ class ExportSettingsModal extends Modal {
                 });
                 
                 this.createSettingsTree(contentDiv, settings[key], pluginId, fullPath);
+            } else if (Array.isArray(settings[key])) {
+                const subContainer = container.createDiv({cls: 'setting-group'});
+                const headerDiv = subContainer.createDiv({cls: 'setting-group-header'});
+                const contentDiv = subContainer.createDiv({cls: 'setting-group-content'});
+                
+                const toggleButton = headerDiv.createSpan({cls: 'setting-group-toggle', text: '►'});
+                
+                const checkbox = headerDiv.createEl('input', {
+                    type: 'checkbox',
+                    attr: {
+                        'data-path': fullPath,
+                        'data-plugin': pluginId
+                    }
+                });
+                
+                headerDiv.createSpan({text: `${key} [${settings[key].length}]`, cls: 'setting-group-label'});
+                
+                if (this.selectedPaths[pluginId]?.includes(fullPath)) {
+                    checkbox.checked = true;
+                }
+                
+                contentDiv.style.display = 'none';
+                
+                toggleButton.addEventListener('click', () => {
+                    const isCollapsed = contentDiv.style.display === 'none';
+                    toggleButton.textContent = isCollapsed ? '▼' : '►';
+                    contentDiv.style.display = isCollapsed ? 'block' : 'none';
+                });
+                
+                checkbox.addEventListener('change', () => {
+                    if (!this.selectedPaths[pluginId]) {
+                        this.selectedPaths[pluginId] = [];
+                    }
+                    
+                    if (checkbox.checked) {
+                        this.selectedPaths[pluginId].push(fullPath);
+                    } else {
+                        this.selectedPaths[pluginId] = this.selectedPaths[pluginId].filter(p => p !== fullPath);
+                    }
+                });
+                
+                // Process array elements if they are objects
+                settings[key].forEach((item: any, index: number) => {
+                    if (typeof item === 'object' && item !== null) {
+                        const itemPath = `${fullPath}[${index}]`;
+                        const itemDiv = contentDiv.createDiv({cls: 'setting-group'});
+                        const itemHeaderDiv = itemDiv.createDiv({cls: 'setting-group-header'});
+                        const itemContentDiv = itemDiv.createDiv({cls: 'setting-group-content'});
+                        
+                        const itemToggle = itemHeaderDiv.createSpan({cls: 'setting-group-toggle', text: '►'});
+                        const itemCheckbox = itemHeaderDiv.createEl('input', {
+                            type: 'checkbox',
+                            attr: {
+                                'data-path': itemPath,
+                                'data-plugin': pluginId
+                            }
+                        });
+                        
+                        itemHeaderDiv.createSpan({text: `[${index}]`, cls: 'setting-group-label'});
+                        
+                        if (this.selectedPaths[pluginId]?.includes(itemPath)) {
+                            itemCheckbox.checked = true;
+                        }
+                        
+                        itemContentDiv.style.display = 'none';
+                        
+                        itemToggle.addEventListener('click', () => {
+                            const isCollapsed = itemContentDiv.style.display === 'none';
+                            itemToggle.textContent = isCollapsed ? '▼' : '►';
+                            itemContentDiv.style.display = isCollapsed ? 'block' : 'none';
+                        });
+                        
+                        itemCheckbox.addEventListener('change', () => {
+                            if (!this.selectedPaths[pluginId]) {
+                                this.selectedPaths[pluginId] = [];
+                            }
+                            
+                            if (itemCheckbox.checked) {
+                                this.selectedPaths[pluginId].push(itemPath);
+                            } else {
+                                this.selectedPaths[pluginId] = this.selectedPaths[pluginId].filter(p => p !== itemPath);
+                            }
+                        });
+                        
+                        this.createSettingsTree(itemContentDiv, item, pluginId, itemPath);
+                    }
+                });
             } else {
                 const settingContainer = container.createDiv({cls: 'setting-item'});
                 
@@ -430,28 +519,70 @@ class ExportSettingsModal extends Modal {
     }
 
     private extractSelectedPaths(settings: any, paths: string[]): any {
-        const result: any = {};
+        let result: any = {};
         
+        // Build result object
         for (const path of paths) {
-            const parts = path.split('.');
             let current = settings;
-            let currentResult = result;
+            let target = result;
+            const segments = path.split(/\.|\[|\]/).filter(s => s !== '');
             
-            for (let i = 0; i < parts.length; i++) {
-                const part = parts[i];
+            // For all segments except the last one
+            for (let i = 0; i < segments.length - 1; i++) {
+                const segment = segments[i];
                 
-                if (i === parts.length - 1) {
-                    currentResult[part] = current[part];
+                if (!isNaN(Number(segment))) {
+                    const arrayName = segments[i - 1];
+                    if (!Array.isArray(target[arrayName])) {
+                        target[arrayName] = [];
+                    }
+                    if (target[arrayName][Number(segment)] === undefined) {
+                        target[arrayName][Number(segment)] = current[Number(segment)] instanceof Array ? [] : {};
+                    }
+                    target = target[arrayName][Number(segment)];
+                    current = current[Number(segment)];
                 } else {
-                    current = current[part];
-                    currentResult[part] = currentResult[part] || {};
-                    currentResult = currentResult[part];
+                    if (target[segment] === undefined) {
+                        target[segment] = (current[segment] instanceof Array) ? [] : {};
+                    }
+                    target = target[segment];
+                    current = current[segment];
+                }
+            }
+            
+            // Handle the last segment
+            const lastSegment = segments[segments.length - 1];
+            if (current !== undefined) {
+                if (!isNaN(Number(lastSegment))) {
+                    // const arrayName = segments[segments.length - 2];
+                    // if (!Array.isArray(target[arrayName])) {
+                    //     target[arrayName] = [];
+                    // }
+                    // target[arrayName][Number(lastSegment)] = current[Number(lastSegment)];
+                    target[Number(lastSegment)] = current[Number(lastSegment)];
+                } else {
+                    target[lastSegment] = current[lastSegment];
                 }
             }
         }
-        
+
+        result = this.removeNullElements(result);
         return result;
     }
+
+    // Remove null nodes from arrays in tree
+    private removeNullElements(node: any): any {
+        if (Array.isArray(node)) {
+            node = node.filter((item: any) => item !== null);
+            node = node.map((item: any) => this.removeNullElements(item));
+        } else if (typeof node === 'object') {
+            for (const key in node) {
+                node[key] = this.removeNullElements(node[key]);
+            }
+        }
+        return node;
+    }
+
 
     onClose() {
         const {contentEl} = this;
@@ -459,10 +590,10 @@ class ExportSettingsModal extends Modal {
     }
 }
 
-class SettingsMigratorSettingTab extends PluginSettingTab {
-    plugin: SettingsMigratorPlugin;
+class SettingsTransferSettingTab extends PluginSettingTab {
+    plugin: SettingsTransferPlugin;
 
-    constructor(app: App, plugin: SettingsMigratorPlugin) {
+    constructor(app: App, plugin: SettingsTransferPlugin) {
         super(app, plugin);
         this.plugin = plugin;
     }
@@ -470,7 +601,7 @@ class SettingsMigratorSettingTab extends PluginSettingTab {
     display(): void {
         const {containerEl} = this;
         containerEl.empty();
-        containerEl.createEl('h2', {text: 'Settings Migrator Settings'});
+        containerEl.createEl('h2', {text: 'Settings Transfer Settings'});
         containerEl.createEl('p', {text: 'There are no settings to configure at this time.'});
     }
 }

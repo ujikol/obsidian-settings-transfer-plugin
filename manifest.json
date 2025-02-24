@@ -1,6 +1,6 @@
 {
-	"id": "settings-migrator",
-	"name": "Settings Migrator",
+	"id": "settings-transfer",
+	"name": "Settings Transfer",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
 	"description": "Export and import plugin settings between Obsidian vaults.",

@@ -9,6 +9,14 @@ declare module "obsidian" {
         plugins: {
             plugins: { [key: string]: any };
         };
+        internalPlugins: {
+            plugins: {
+                [key: string]: {
+                    instance: any;
+                    enabled: boolean;
+                };
+            };
+        };
     }
 }
 
