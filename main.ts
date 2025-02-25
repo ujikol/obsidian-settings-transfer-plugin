@@ -8,6 +8,8 @@ const DEFAULT_SETTINGS: SettingsTransferSettings = {
     lastExportedPaths: {}
 }
 
+const CORE_PLUGINS = ['app', 'appearance', 'community-plugins', 'core-plugins', 'core-plugins-migration', 'graph', 'hotkeys', 'types', 'workspace', 'workspaces'];
+
 export default class SettingsTransferPlugin extends Plugin {
     settings: SettingsTransferSettings;
 
@@ -218,7 +220,7 @@ class ExportSettingsModal extends Modal {
             for (const file of files.files) {
                 if (file.endsWith('.json')) {
                     const basename = file.split('/').pop()?.replace('.json', '');
-                    if (basename && !allPlugins[basename]) {
+                    if (basename && CORE_PLUGINS.contains(basename) && !allPlugins[basename]) {
                         // Check if it's a core plugin or core settings
                         const content = await this.app.vault.adapter.read(`${configDir}/${basename}.json`);
                         try {
